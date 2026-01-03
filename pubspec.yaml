@@ -1,0 +1,32 @@
+name: finanzadiaria_local
+description: "App local para control de gastos diarios - FinanzaDiaria"
+publish_to: "none"
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  provider: ^6.1.2
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  intl: ^0.19.0
+  fl_chart: ^0.68.0
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  hive_generator: ^2.0.1
+  build_runner: ^2.4.12
+
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
