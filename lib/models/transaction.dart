@@ -25,6 +25,9 @@ class Transaction extends HiveObject {
   @HiveField(6)
   double paidWithBank = 0.0;
 
+  @HiveField(7)
+  Map<String, double> paidWithBanks = {};
+
   Transaction({
     required this.amount,
     required this.date,
@@ -33,5 +36,6 @@ class Transaction extends HiveObject {
     required this.isIncome,
     this.paidWithCash = 0.0,
     this.paidWithBank = 0.0,
+    this.paidWithBanks = const {},
   });
 }

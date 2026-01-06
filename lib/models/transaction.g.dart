@@ -24,13 +24,14 @@ class TransactionAdapter extends TypeAdapter<Transaction> {
       isIncome: fields[4] as bool,
       paidWithCash: fields[5] as double,
       paidWithBank: fields[6] as double,
+      paidWithBanks: (fields[7] as Map).cast<String, double>(),
     );
   }
 
   @override
   void write(BinaryWriter writer, Transaction obj) {
     writer
-      ..writeByte(7)
+      ..writeByte(8)
       ..writeByte(0)
       ..write(obj.amount)
       ..writeByte(1)
@@ -44,7 +45,9 @@ class TransactionAdapter extends TypeAdapter<Transaction> {
       ..writeByte(5)
       ..write(obj.paidWithCash)
       ..writeByte(6)
-      ..write(obj.paidWithBank);
+      ..write(obj.paidWithBank)
+      ..writeByte(7)
+      ..write(obj.paidWithBanks);
   }
 
   @override
