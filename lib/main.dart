@@ -1,7 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:path_provider/path_provider.dart';
+
 import 'services/notification_service.dart';
 
 import 'models/transaction.dart';
@@ -17,30 +21,44 @@ import 'screens/home_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Hive.initFlutter();
 
+  // === BACKUP AUTOMÁTICO EN GOOGLE DRIVE (Android) E iCLOUD (iOS) ===
+  Directory dir;
+  if (Platform.isAndroid) {
+    dir = await getApplicationDocumentsDirectory(); // Android: respaldado por Google Drive
+  } else if (Platform.isIOS) {
+    dir = await getLibraryDirectory(); // iOS: respaldado por iCloud
+  } else {
+    dir = await getApplicationDocumentsDirectory();
+  }
+
+  await Hive.initFlutter(dir.path);
+  // ====================================================================
+
+  // Registrar adaptadores
   Hive.registerAdapter(TransactionAdapter());
   Hive.registerAdapter(CategoryAdapter());
   Hive.registerAdapter(FixedPaymentAdapter());
-  Hive.registerAdapter(DeletedTransactionAdapter()); // ← Ahora sí existe
+  Hive.registerAdapter(DeletedTransactionAdapter());
   Hive.registerAdapter(MoneyDestinationAdapter());
   Hive.registerAdapter(ManualFixedExpenseAdapter());
   Hive.registerAdapter(BankAccountAdapter());
 
+  // Abrir boxes
   await Hive.openBox('settings');
   await Hive.openBox<Transaction>('transactions');
   await Hive.openBox<Category>('categories');
   await Hive.openBox<FixedPayment>('fixed_payments');
-  await Hive.openBox<DeletedTransaction>('deleted_transactions'); // ← Ahora sí existe
+  await Hive.openBox<DeletedTransaction>('deleted_transactions');
   await Hive.openBox<MoneyDestination>('money_destinations');
   await Hive.openBox<ManualFixedExpense>('manual_fixed_expenses');
   await Hive.openBox<BankAccount>('bank_accounts');
-  await NotificationService.initialize();
 
+  // Notificaciones y formato fecha
+  await NotificationService.initialize();
   await initializeDateFormatting('es_MX', null);
+
   runApp(const MyApp());
-  final provider = FinanceProvider();
-  await provider.schedulePaymentNotifications();
 }
 
 class MyApp extends StatelessWidget {
@@ -49,7 +67,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => FinanceProvider(),
+      create: (_) => FinanceProvider()..schedulePaymentNotifications(), // ← Llamada correcta
       child: MaterialApp(
         title: 'FinanzaDiaria',
         debugShowCheckedModeBanner: false,
