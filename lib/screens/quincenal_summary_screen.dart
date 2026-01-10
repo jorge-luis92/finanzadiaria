@@ -490,7 +490,7 @@ class QuincenalSummaryScreen extends StatelessWidget {
             onPressed: () {
               final value =
                   double.tryParse(controller.text.replaceAll(',', '.')) ??
-                  280.0;
+                  0.00;
               provider.deductions = value;
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(

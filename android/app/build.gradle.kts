@@ -6,31 +6,30 @@ plugins {
 
 android {
     namespace = "com.desarrollochido.finanzadiaria"
-    compileSdk = 36  // ← Versión fija
-    ndkVersion = "27.0.12077973"  // ← Versión fija
+    compileSdk = 36
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_21  // ← CAMBIA de 17 a 21
+        targetCompatibility = JavaVersion.VERSION_21  // ← CAMBIA de 17 a 21
         isCoreLibraryDesugaringEnabled = true
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
+    kotlin {
+        jvmToolchain(21)  // ← CAMBIA de 17 a 21
     }
 
     defaultConfig {
         applicationId = "com.desarrollochido.finanzadiaria"
-        minSdk = flutter.minSdkVersion  // ← Versión mínima para Play Store
-        targetSdk = 36  // ← Última versión
-        versionCode = 1
-        versionName = "1.0.0"
+        minSdk = flutter.minSdkVersion
+        targetSdk = 36
+        versionCode = 2
+        versionName = "1.0.1"
+        multiDexEnabled = true
     }
 
-    // ==== FIRMA MANUAL (sin key.properties) ====
     signingConfigs {
         create("release") {
-            // Aquí pones los datos DIRECTAMENTE (temporal)
             storeFile = file("../keystores/finanzas-app.jks")
             storePassword = "App.2024sindrome"
             keyAlias = "upload"
@@ -44,8 +43,8 @@ android {
         }
         getByName("release") {
             signingConfig = signingConfigs.getByName("release")
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
@@ -56,4 +55,5 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+    implementation("androidx.multidex:multidex:2.0.1")
 }
