@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
-import 'dart:math' as math; // ← NUEVO IMPORT PARA math.min
+import 'dart:math' as math;
+import 'package:collection/collection.dart';
+
 import '../models/transaction.dart';
 import '../models/category.dart';
 import '../models/fixed_payment.dart';
@@ -10,36 +13,47 @@ import '../models/money_destination.dart';
 import '../models/manual_fixed_expense.dart';
 import '../models/bank_account.dart';
 import '../services/notification_service.dart';
-import 'package:collection/collection.dart'; // ← NUEVO IMPORT
+
+enum ChartType { pie, bar, line }
 
 class FinanceProvider extends ChangeNotifier {
-  late Box settingsBox = Hive.box('settings');
-  late Box<Transaction> transactionBox = Hive.box<Transaction>('transactions');
-  late Box<Category> categoryBox = Hive.box<Category>('categories');
-  late Box<FixedPayment> fixedPaymentsBox = Hive.box<FixedPayment>(
-    'fixed_payments',
-  );
-  late Box<DeletedTransaction> deletedTransactionsBox =
-      Hive.box<DeletedTransaction>('deleted_transactions');
-  late Box<MoneyDestination> moneyDestinationsBox = Hive.box<MoneyDestination>(
-    'money_destinations',
-  );
-  late Box<ManualFixedExpense> manualFixedExpensesBox =
-      Hive.box<ManualFixedExpense>('manual_fixed_expenses');
-  late Box<BankAccount> bankAccountsBox = Hive.box<BankAccount>(
-    'bank_accounts',
-  );
+  // STREAM para forzar actualizaciones en release
+  final StreamController<bool> _refreshController =
+      StreamController<bool>.broadcast();
+  Stream<bool> get refreshStream => _refreshController.stream;
 
+  ChartType selectedChartType = ChartType.pie;
+
+  // Método para cambiar tipo de gráfico
+  void setChartType(ChartType type) {
+    selectedChartType = type;
+    settingsBox.put('selectedChartType', type.toString());
+    _forceImmediateRefresh();
+  }
+
+  // Boxes de Hive
+  late Box settingsBox;
+  late Box<Transaction> transactionBox;
+  late Box<Category> categoryBox;
+  late Box<FixedPayment> fixedPaymentsBox;
+  late Box<DeletedTransaction> deletedTransactionsBox;
+  late Box<MoneyDestination> moneyDestinationsBox;
+  late Box<ManualFixedExpense> manualFixedExpensesBox;
+  late Box<BankAccount> bankAccountsBox;
+
+  // Variables de configuración y estado
   double dailyIncome = 0.0;
   String payFrequency = 'mensual';
   int daysWorkedPerPeriod = 22;
   double cashBalance = 0.0;
   List<double> bankBalances = [];
   DateTime? lastPayDate;
-
   bool hasSetCash = false;
   bool hasSetBank = false;
+  double savingsGoal = 0.0;
+  bool saveInCash = true;
 
+  // Listas en memoria
   List<Category> categories = [];
   List<FixedPayment> fixedPayments = [];
   List<DeletedTransaction> deletedTransactions = [];
@@ -47,18 +61,46 @@ class FinanceProvider extends ChangeNotifier {
   List<ManualFixedExpense> manualFixedExpenses = [];
   List<BankAccount> bankAccounts = [];
 
-  double savingsGoal = 0.0;
-  bool saveInCash = true;
-
-  double get deductions => settingsBox.get('deductions', defaultValue: 0.0);
-  set deductions(double value) {
-    settingsBox.put('deductions', value);
-    notifyListeners();
-  }
-
+  // Formato de fecha
   final DateFormat dateFormat = DateFormat('dd/MM/yyyy', 'es_MX');
 
+  // Getters rápidos
+  double get deductions => settingsBox.get('deductions', defaultValue: 0.0);
+
+  set deductions(double value) {
+    settingsBox.put('deductions', value);
+    _saveAndRefresh();
+  }
+
   FinanceProvider() {
+    // Inicializar boxes
+    settingsBox = Hive.box('settings');
+    transactionBox = Hive.box<Transaction>('transactions');
+    categoryBox = Hive.box<Category>('categories');
+    fixedPaymentsBox = Hive.box<FixedPayment>('fixed_payments');
+    deletedTransactionsBox = Hive.box<DeletedTransaction>(
+      'deleted_transactions',
+    );
+    moneyDestinationsBox = Hive.box<MoneyDestination>('money_destinations');
+    manualFixedExpensesBox = Hive.box<ManualFixedExpense>(
+      'manual_fixed_expenses',
+    );
+    bankAccountsBox = Hive.box<BankAccount>('bank_accounts');
+
+    // Cargar configuración de gráfico
+    final savedChartType = settingsBox.get(
+      'selectedChartType',
+      defaultValue: 'ChartType.pie',
+    );
+    if (savedChartType == 'ChartType.bar') {
+      selectedChartType = ChartType.bar;
+    } else if (savedChartType == 'ChartType.line') {
+      selectedChartType = ChartType.line;
+    } else {
+      selectedChartType = ChartType.pie;
+    }
+
+    // Cargar todo
     _loadSettings();
     _loadCategories();
     loadFixedPayments();
@@ -66,6 +108,121 @@ class FinanceProvider extends ChangeNotifier {
     loadMoneyDestinations();
     loadManualFixedExpenses();
     loadBankAccounts();
+
+    // Programar notificaciones iniciales
+    schedulePaymentNotifications();
+
+    // Forzar primer refresh
+    _forceImmediateRefresh();
+  }
+
+  // MÉTODO NUEVO: Forzar refresh inmediato
+  void _forceImmediateRefresh() {
+    // Estrategia 1: NotifyListeners tradicional
+    notifyListeners();
+
+    // Estrategia 2: Stream para forzar rebuilds
+    _refreshController.add(true);
+
+    // Estrategia 3: Post frame callback
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      notifyListeners();
+    });
+
+    // Estrategia 4: Microtask para asegurar
+    Future.microtask(() {
+      notifyListeners();
+      Future.microtask(() => notifyListeners());
+    });
+  }
+
+  // MÉTODO NUEVO: Guardar y refrescar inmediatamente
+  Future<void> _saveAndRefresh() async {
+    try {
+      await settingsBox.flush();
+      _forceImmediateRefresh();
+    } catch (e) {
+      print('❌ Error en _saveAndRefresh: $e');
+    }
+  }
+
+  Future<void> flushSettings() async {
+    try {
+      await settingsBox.flush();
+    } catch (e) {
+      print('❌ Error flushSettings: $e');
+    }
+  }
+
+  Future<void> flushTransactions() async {
+    try {
+      await transactionBox.flush();
+    } catch (e) {
+      print('❌ Error flushTransactions: $e');
+    }
+  }
+
+  Future<void> _flushCategories() async {
+    try {
+      await categoryBox.flush();
+    } catch (e) {
+      print('❌ Error _flushCategories: $e');
+    }
+  }
+
+  Future<void> _flushFixedPayments() async {
+    try {
+      await fixedPaymentsBox.flush();
+    } catch (e) {
+      print('❌ Error _flushFixedPayments: $e');
+    }
+  }
+
+  Future<void> _flushDeletedTransactions() async {
+    try {
+      await deletedTransactionsBox.flush();
+    } catch (e) {
+      print('❌ Error _flushDeletedTransactions: $e');
+    }
+  }
+
+  Future<void> _flushMoneyDestinations() async {
+    try {
+      await moneyDestinationsBox.flush();
+    } catch (e) {
+      print('❌ Error _flushMoneyDestinations: $e');
+    }
+  }
+
+  Future<void> _flushManualFixedExpenses() async {
+    try {
+      await manualFixedExpensesBox.flush();
+    } catch (e) {
+      print('❌ Error _flushManualFixedExpenses: $e');
+    }
+  }
+
+  Future<void> _flushBankAccounts() async {
+    try {
+      await bankAccountsBox.flush();
+    } catch (e) {
+      print('❌ Error _flushBankAccounts: $e');
+    }
+  }
+
+  Future<void> flushAllBoxes() async {
+    try {
+      await flushSettings();
+      await flushTransactions();
+      await _flushCategories();
+      await _flushFixedPayments();
+      await _flushDeletedTransactions();
+      await _flushMoneyDestinations();
+      await _flushManualFixedExpenses();
+      await _flushBankAccounts();
+    } catch (e) {
+      print('❌ Error al guardar boxes: $e');
+    }
   }
 
   void _loadSettings() {
@@ -95,6 +252,8 @@ class FinanceProvider extends ChangeNotifier {
 
     savingsGoal = settingsBox.get('savingsGoal', defaultValue: 0.0);
     saveInCash = settingsBox.get('saveInCash', defaultValue: true);
+
+    _forceImmediateRefresh();
   }
 
   void saveIncomeConfig(
@@ -111,7 +270,7 @@ class FinanceProvider extends ChangeNotifier {
     settingsBox.put('daysWorkedPerPeriod', daysWorked);
     settingsBox.put('configured', true);
 
-    notifyListeners();
+    _saveAndRefresh();
   }
 
   void setSavingsGoal(double goal, bool inCash) {
@@ -119,55 +278,106 @@ class FinanceProvider extends ChangeNotifier {
     saveInCash = inCash;
     settingsBox.put('savingsGoal', goal);
     settingsBox.put('saveInCash', inCash);
-    notifyListeners();
+    _saveAndRefresh();
+  }
+
+  // MÉTODO MEJORADO: Actualizar saldo de efectivo
+  void updateCashBalance(double newBalance) {
+    // Validación: no permitir valores negativos
+    if (newBalance < 0) newBalance = 0.0;
+    if (newBalance.isNaN) newBalance = 0.0;
+
+    cashBalance = newBalance;
+    hasSetCash = true;
+    settingsBox.put('cashBalance', cashBalance);
+    settingsBox.put('hasSetCash', hasSetCash);
+
+    _saveAndRefresh();
   }
 
   void updateBalances({double? cash, double? bank}) {
     if (cash != null) {
+      if (cash < 0) cash = 0.0;
+      if (cash.isNaN) cash = 0.0;
       cashBalance = double.parse(cash.toStringAsFixed(2));
       settingsBox.put('cashBalance', cashBalance);
       hasSetCash = true;
     }
+
     if (bank != null) {
+      if (bank < 0) bank = 0.0;
+      if (bank.isNaN) bank = 0.0;
       bankBalances = [double.parse(bank.toStringAsFixed(2))];
       settingsBox.put('bankBalances', bankBalances);
       hasSetBank = true;
     }
-    notifyListeners();
+
+    _saveAndRefresh();
   }
 
   bool spend(double totalAmount, double fromCash, Map<int, double> bankUsage) {
+    // Validaciones
+    if (totalAmount <= 0) return false;
+    if (fromCash < 0) fromCash = 0.0;
+
+    double totalBankUse = bankUsage.values.fold(0.0, (a, b) => a + b);
+    double totalUsed = fromCash + totalBankUse;
+
+    if ((totalUsed - totalAmount).abs() > 0.01) {
+      return false;
+    }
+
     if (fromCash > cashBalance + 0.01) {
       return false;
     }
 
-    double totalBankRequested = bankUsage.values.fold(0.0, (a, b) => a + b);
-    if ((fromCash + totalBankRequested - totalAmount).abs() > 0.01)
-      return false;
-
-    // Quitar de efectivo
-    cashBalance -= fromCash;
-    settingsBox.put('cashBalance', cashBalance);
-
-    // Quitar de cada banco seleccionado
-    bankUsage.forEach((index, amount) {
-      if (index < bankAccounts.length) {
-        final bank = bankAccounts[index];
-        if (amount > bank.balance + 0.01) {
-          // Fondos insuficientes en este banco
-          // Revertir lo ya quitado (simplificado: devolver todo y retornar false)
-          cashBalance += fromCash;
-          settingsBox.put('cashBalance', cashBalance);
-          return;
+    for (var entry in bankUsage.entries) {
+      if (entry.key < bankAccounts.length) {
+        final bank = bankAccounts[entry.key];
+        if (entry.value > bank.balance + 0.01) {
+          return false;
         }
-        bank.balance -= amount;
-        bankAccountsBox.put(bank.key, bank);
+      } else {
+        return false;
       }
-    });
+    }
 
-    loadBankAccounts();
-    notifyListeners();
-    return true;
+    try {
+      // Descontar efectivo
+      if (fromCash > 0) {
+        cashBalance -= fromCash;
+        cashBalance = double.parse(cashBalance.toStringAsFixed(2));
+        settingsBox.put('cashBalance', cashBalance);
+      }
+
+      // Descontar de bancos
+      for (var entry in bankUsage.entries) {
+        final index = entry.key;
+        final amount = entry.value;
+
+        if (index < bankAccounts.length && amount > 0) {
+          final bank = bankAccounts[index];
+          bank.balance -= amount;
+          bank.balance = double.parse(bank.balance.toStringAsFixed(2));
+
+          final key = bank.key;
+          if (key != null) {
+            bankAccountsBox.put(key, bank);
+          }
+        }
+      }
+
+      // Guardar y refrescar inmediatamente
+      Future.wait([settingsBox.flush(), bankAccountsBox.flush()]).then((_) {
+        loadBankAccounts();
+        _forceImmediateRefresh();
+      });
+
+      return true;
+    } catch (e) {
+      print('❌ Error en spend: $e');
+      return false;
+    }
   }
 
   int getDefaultDaysForPeriod() {
@@ -189,6 +399,7 @@ class FinanceProvider extends ChangeNotifier {
   double getExpectedPaycheck() =>
       double.parse((dailyIncome * daysWorkedPerPeriod).toStringAsFixed(2));
 
+  // Saldo total actual
   double getCurrentTotalBalance() {
     double total = cashBalance;
     for (var b in bankBalances) total += b;
@@ -196,6 +407,7 @@ class FinanceProvider extends ChangeNotifier {
     return double.parse(total.toStringAsFixed(2));
   }
 
+  // Ingresos y gastos de hoy
   double getTodayIncome() {
     final today = DateTime.now();
     return transactionBox.values
@@ -211,11 +423,10 @@ class FinanceProvider extends ChangeNotifier {
   }
 
   double getAvailableToday() {
-    final total =
-        getCurrentTotalBalance() + getTodayIncome() - getTodayExpenses();
-    return total > 0 ? double.parse(total.toStringAsFixed(2)) : 0.0;
+    return getCurrentTotalBalance();
   }
 
+  // Verificar si se puede marcar pago recibido
   bool canMarkPayment() {
     if (lastPayDate == null) return true;
     final now = DateTime.now();
@@ -242,23 +453,29 @@ class FinanceProvider extends ChangeNotifier {
 
   void markPaymentReceived() {
     if (!canMarkPayment()) return;
+
     final paycheck = getExpectedPaycheck();
     cashBalance += paycheck;
     lastPayDate = DateTime.now();
+
     settingsBox.put('cashBalance', cashBalance);
     settingsBox.put('lastPayDate', lastPayDate!.millisecondsSinceEpoch);
-    notifyListeners();
+
+    _saveAndRefresh();
   }
 
   void cancelLastPayment() {
     if (lastPayDate == null) return;
+
     final paycheck = getExpectedPaycheck();
     cashBalance -= paycheck;
     if (cashBalance < 0) cashBalance = 0.0;
     lastPayDate = null;
+
     settingsBox.put('cashBalance', cashBalance);
     settingsBox.delete('lastPayDate');
-    notifyListeners();
+
+    _saveAndRefresh();
   }
 
   void _loadCategories() {
@@ -315,96 +532,127 @@ class FinanceProvider extends ChangeNotifier {
           isIncome: false,
         ),
       ];
-      for (var cat in defaults) categoryBox.add(cat);
+      for (var cat in defaults) {
+        categoryBox.add(cat);
+      }
+      _flushCategories();
     }
     categories = categoryBox.values.toList();
-    notifyListeners();
+    _forceImmediateRefresh();
   }
 
   void loadFixedPayments() {
     fixedPayments = fixedPaymentsBox.values.toList();
-    notifyListeners();
+    _forceImmediateRefresh();
   }
 
-  void addFixedPayment(FixedPayment payment) {
-    fixedPaymentsBox.add(payment);
+  void addFixedPayment(FixedPayment payment) async {
+    await fixedPaymentsBox.add(payment);
+    await _flushFixedPayments();
     loadFixedPayments();
   }
 
-  void updateFixedPayment(dynamic key, FixedPayment payment) {
-    fixedPaymentsBox.put(key, payment);
+  void updateFixedPayment(dynamic key, FixedPayment payment) async {
+    await fixedPaymentsBox.put(key, payment);
+    await _flushFixedPayments();
     loadFixedPayments();
   }
 
-  void deleteFixedPayment(dynamic key) {
-    fixedPaymentsBox.delete(key);
+  void deleteFixedPayment(dynamic key) async {
+    await fixedPaymentsBox.delete(key);
+    await _flushFixedPayments();
     loadFixedPayments();
   }
 
   void loadDeletedTransactions() {
     deletedTransactions = deletedTransactionsBox.values.toList()
       ..sort((a, b) => b.deletedAt.compareTo(a.deletedAt));
-    notifyListeners();
+    _forceImmediateRefresh();
   }
 
   void loadMoneyDestinations() {
     moneyDestinations = moneyDestinationsBox.values.toList();
-    notifyListeners();
+    _forceImmediateRefresh();
   }
 
-  void addMoneyDestination(MoneyDestination dest) {
-    moneyDestinationsBox.add(dest);
+  void addMoneyDestination(MoneyDestination dest) async {
+    await moneyDestinationsBox.add(dest);
+    await _flushMoneyDestinations();
     loadMoneyDestinations();
   }
 
-  void updateMoneyDestination(dynamic key, MoneyDestination dest) {
-    moneyDestinationsBox.put(key, dest);
+  void updateMoneyDestination(dynamic key, MoneyDestination dest) async {
+    await moneyDestinationsBox.put(key, dest);
+    await _flushMoneyDestinations();
     loadMoneyDestinations();
   }
 
-  void deleteMoneyDestination(dynamic key) {
-    moneyDestinationsBox.delete(key);
+  void deleteMoneyDestination(dynamic key) async {
+    await moneyDestinationsBox.delete(key);
+    await _flushMoneyDestinations();
     loadMoneyDestinations();
   }
 
   void loadManualFixedExpenses() {
     manualFixedExpenses = manualFixedExpensesBox.values.toList();
-    notifyListeners();
+    _forceImmediateRefresh();
   }
 
-  void addManualFixedExpense(ManualFixedExpense expense) {
-    manualFixedExpensesBox.add(expense);
+  void addManualFixedExpense(ManualFixedExpense expense) async {
+    await manualFixedExpensesBox.add(expense);
+    await _flushManualFixedExpenses();
     loadManualFixedExpenses();
   }
 
-  void updateManualFixedExpense(dynamic key, ManualFixedExpense expense) {
-    manualFixedExpensesBox.put(key, expense);
+  void updateManualFixedExpense(dynamic key, ManualFixedExpense expense) async {
+    await manualFixedExpensesBox.put(key, expense);
+    await _flushManualFixedExpenses();
     loadManualFixedExpenses();
   }
 
-  void deleteManualFixedExpense(dynamic key) {
-    manualFixedExpensesBox.delete(key);
+  void deleteManualFixedExpense(dynamic key) async {
+    await manualFixedExpensesBox.delete(key);
+    await _flushManualFixedExpenses();
     loadManualFixedExpenses();
   }
 
   void loadBankAccounts() {
     bankAccounts = bankAccountsBox.values.toList();
-    notifyListeners();
+    _forceImmediateRefresh();
   }
 
-  void addBankAccount(BankAccount account) {
-    bankAccountsBox.add(account);
+  void addBankAccount(BankAccount account) async {
+    // Validación: no permitir nombre vacío
+    if (account.name.trim().isEmpty) {
+      account.name = 'Banco ${bankAccounts.length + 1}';
+    }
+
+    // Validación: no permitir saldo negativo
+    if (account.balance < 0) account.balance = 0.0;
+    if (account.balance.isNaN) account.balance = 0.0;
+
+    await bankAccountsBox.add(account);
+    await _flushBankAccounts();
     loadBankAccounts();
+    _forceImmediateRefresh();
   }
 
-  void updateBankAccount(dynamic key, BankAccount account) {
-    bankAccountsBox.put(key, account);
+  void updateBankAccount(dynamic key, BankAccount account) async {
+    // Validación: no permitir saldo negativo
+    if (account.balance < 0) account.balance = 0.0;
+    if (account.balance.isNaN) account.balance = 0.0;
+
+    await bankAccountsBox.put(key, account);
+    await _flushBankAccounts();
     loadBankAccounts();
+    _forceImmediateRefresh();
   }
 
-  void deleteBankAccount(dynamic key) {
-    bankAccountsBox.delete(key);
+  void deleteBankAccount(dynamic key) async {
+    await bankAccountsBox.delete(key);
+    await _flushBankAccounts();
     loadBankAccounts();
+    _forceImmediateRefresh();
   }
 
   void addTransactionWithDate(
@@ -416,7 +664,13 @@ class FinanceProvider extends ChangeNotifier {
     double paidWithCash = 0.0,
     double paidWithBank = 0.0,
     Map<String, double> paidWithBanks = const {},
-  }) {
+  }) async {
+    // Validaciones
+    if (amount < 0) amount = 0.0;
+    if (amount.isNaN) amount = 0.0;
+    if (paidWithCash < 0) paidWithCash = 0.0;
+    if (paidWithBank < 0) paidWithBank = 0.0;
+
     final trans = Transaction(
       amount: double.parse(amount.toStringAsFixed(2)),
       date: date,
@@ -427,21 +681,136 @@ class FinanceProvider extends ChangeNotifier {
       paidWithBank: paidWithBank,
       paidWithBanks: paidWithBanks,
     );
-    transactionBox.add(trans);
-    notifyListeners();
+
+    final key = await transactionBox.add(trans);
+    // Crear con key asignado
+    final transWithKey = Transaction(
+      amount: trans.amount,
+      date: trans.date,
+      description: trans.description,
+      categoryIndex: trans.categoryIndex,
+      isIncome: trans.isIncome,
+      paidWithCash: trans.paidWithCash,
+      paidWithBank: trans.paidWithBank,
+      paidWithBanks: trans.paidWithBanks,
+      key: key,
+    );
+
+    await transactionBox.put(key, transWithKey);
+    await flushTransactions();
+
+    if (isIncome) {
+      cashBalance += amount;
+      settingsBox.put('cashBalance', cashBalance);
+      await flushSettings();
+    }
+
+    loadBankAccounts();
+    _forceImmediateRefresh();
   }
 
-  void updateCashBalance(double newBalance) {
-    cashBalance = double.parse(newBalance.toStringAsFixed(2));
-    settingsBox.put('cashBalance', cashBalance);
-    hasSetCash = true;
-    notifyListeners();
+  Future<void> deleteTransactionImmediately(
+    Transaction trans,
+    BuildContext context,
+  ) async {
+    try {
+      final transactionKey = trans.key;
+      if (transactionKey == null) {
+        return;
+      }
+
+      // 1. Guardar en eliminadas
+      final deleted = DeletedTransaction(
+        amount: trans.amount,
+        date: trans.date,
+        description: trans.description,
+        category: categories[trans.categoryIndex].name,
+        isIncome: trans.isIncome,
+        deletedAt: DateTime.now(),
+        paidWithCash: trans.paidWithCash,
+        paidWithBank: trans.paidWithBank,
+        paidWithBanks: trans.paidWithBanks,
+      );
+      await deletedTransactionsBox.add(deleted);
+      await _flushDeletedTransactions();
+
+      // 2. Actualizar saldos (REVERTIR)
+      if (!trans.isIncome) {
+        if (trans.paidWithCash > 0) {
+          cashBalance += trans.paidWithCash;
+          settingsBox.put('cashBalance', cashBalance);
+        }
+
+        for (var entry in trans.paidWithBanks.entries) {
+          final bankName = entry.key;
+          final amount = entry.value;
+          final bank = bankAccounts.firstWhereOrNull((b) => b.name == bankName);
+          if (bank != null) {
+            bank.balance += amount;
+            await bankAccountsBox.put(bank.key, bank);
+          }
+        }
+
+        if (trans.paidWithBanks.isEmpty && trans.paidWithBank > 0) {
+          cashBalance += trans.paidWithBank;
+          settingsBox.put('cashBalance', cashBalance);
+        }
+      } else {
+        cashBalance -= trans.amount;
+        if (cashBalance < 0) cashBalance = 0.0;
+        settingsBox.put('cashBalance', cashBalance);
+      }
+
+      // 3. Eliminar la transacción
+      await transactionBox.delete(transactionKey);
+      await flushTransactions();
+
+      // 4. Guardar todos los cambios
+      await Future.wait([settingsBox.flush(), bankAccountsBox.flush()]);
+
+      // 5. Actualizar listas
+      loadDeletedTransactions();
+      loadBankAccounts();
+
+      // 6. Forzar refresh
+      _forceImmediateRefresh();
+
+      // 7. Mostrar mensaje
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Transacción eliminada'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Error eliminando transacción: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
   }
 
   Future<bool> deleteTransactionWithConfirmation(
     Transaction trans,
     BuildContext context,
   ) async {
+    final transactionKey = trans.key;
+    if (transactionKey == null) {
+      return false;
+    }
+
+    final existingTransaction = transactionBox.get(transactionKey);
+    if (existingTransaction == null) {
+      return false;
+    }
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -466,63 +835,87 @@ class FinanceProvider extends ChangeNotifier {
 
     if (confirm != true) return false;
 
-    // Guardar en eliminados
-    final deleted = DeletedTransaction(
-      amount: trans.amount,
-      originalDate: trans.date,
-      description: trans.description,
-      categoryIndex: trans.categoryIndex,
-      isIncome: trans.isIncome,
-      deletedAt: DateTime.now(),
-      paidWithCash: trans.paidWithCash,
-      paidWithBank: trans.paidWithBank,
-    );
-    await deletedTransactionsBox.add(deleted);
+    try {
+      // 1. Guardar en eliminadas
+      final deleted = DeletedTransaction(
+        amount: trans.amount,
+        date: trans.date,
+        description: trans.description,
+        category: categories[trans.categoryIndex].name,
+        isIncome: trans.isIncome,
+        deletedAt: DateTime.now(),
+        paidWithCash: trans.paidWithCash,
+        paidWithBank: trans.paidWithBank,
+        paidWithBanks: trans.paidWithBanks,
+      );
+      await deletedTransactionsBox.add(deleted);
+      await _flushDeletedTransactions();
 
-    if (!trans.isIncome) {
-      // Devolver efectivo
-      cashBalance += trans.paidWithCash;
-      settingsBox.put('cashBalance', cashBalance);
-
-      // Devolver a bancos específicos usando el map guardado
-      trans.paidWithBanks.forEach((bankName, amount) {
-        final bank = bankAccounts.firstWhereOrNull((b) => b.name == bankName);
-        if (bank != null) {
-          bank.balance += amount;
-          bankAccountsBox.put(bank.key, bank);
-        } else {
-          // Si el banco fue eliminado, devolver a efectivo
-          cashBalance += amount;
+      // 2. Actualizar saldos
+      if (!trans.isIncome) {
+        if (trans.paidWithCash > 0) {
+          cashBalance += trans.paidWithCash;
           settingsBox.put('cashBalance', cashBalance);
         }
-      });
 
-      // Compatibilidad con transacciones antiguas (solo paidWithBank)
-      if (trans.paidWithBanks.isEmpty && trans.paidWithBank > 0) {
-        cashBalance += trans.paidWithBank;
-        settingsBox.put('cashBalance', cashBalance);
+        trans.paidWithBanks.forEach((bankName, amount) async {
+          final bank = bankAccounts.firstWhereOrNull((b) => b.name == bankName);
+          if (bank != null) {
+            bank.balance += amount;
+            await bankAccountsBox.put(bank.key, bank);
+          }
+        });
+
+        if (trans.paidWithBanks.isEmpty && trans.paidWithBank > 0) {
+          cashBalance += trans.paidWithBank;
+          settingsBox.put('cashBalance', cashBalance);
+        }
+      } else {
+        if (trans.amount > 0) {
+          cashBalance -= trans.amount;
+          if (cashBalance < 0) cashBalance = 0.0;
+          settingsBox.put('cashBalance', cashBalance);
+        }
       }
-    } else {
-      cashBalance -= trans.amount;
-      if (cashBalance < 0) cashBalance = 0.0;
-      settingsBox.put('cashBalance', cashBalance);
+
+      // 3. ELIMINAR LA TRANSACCIÓN
+      await transactionBox.delete(transactionKey);
+      await flushTransactions();
+
+      // 4. Actualizar listas
+      loadDeletedTransactions();
+      loadBankAccounts();
+
+      // 5. Forzar un rebuild
+      _forceImmediateRefresh();
+
+      // 6. Mostrar mensaje de éxito
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Transacción eliminada y saldo recuperado'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+
+      return true;
+    } catch (e) {
+      print('❌ Error eliminando transacción: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al eliminar: $e'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+      return false;
     }
-
-    await trans.delete();
-    loadDeletedTransactions();
-    loadBankAccounts();
-    notifyListeners();
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Transacción eliminada y saldo recuperado')),
-    );
-
-    return true;
   }
 
   Future<void> schedulePaymentNotifications() async {
     await NotificationService.cancelAll();
-
     final now = DateTime.now();
     for (var payment in fixedPayments) {
       DateTime dueDate = DateTime(now.year, now.month, payment.dueDay);
@@ -533,9 +926,7 @@ class FinanceProvider extends ChangeNotifier {
           payment.dueDay,
         );
       }
-
       final notifyDate = dueDate.subtract(const Duration(days: 3));
-
       if (notifyDate.isAfter(now)) {
         await NotificationService.schedulePaymentNotification(
           payment.key.hashCode,
@@ -544,6 +935,129 @@ class FinanceProvider extends ChangeNotifier {
           notifyDate,
         );
       }
+    }
+  }
+
+  List<Transaction> getAllTransactions() {
+    final box = Hive.box<Transaction>('transactions');
+    return box.values.toList()..sort((a, b) => b.date.compareTo(a.date));
+  }
+
+  List<Transaction> getTransactionsByMonth(int month, int year) {
+    return transactionBox.values
+        .where((t) => t.date.month == month && t.date.year == year)
+        .toList();
+  }
+
+  double getAverageDailyExpense() {
+    final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30));
+    final gastos = transactionBox.values
+        .where((t) => !t.isIncome && t.date.isAfter(thirtyDaysAgo))
+        .fold(0.0, (sum, t) => sum + t.amount);
+    return gastos / 30;
+  }
+
+  double getProjectedSavings() {
+    return dailyIncome * daysWorkedPerPeriod - deductions - savingsGoal;
+  }
+
+  void resetAllData() async {
+    await transactionBox.clear();
+    await categoryBox.clear();
+    await fixedPaymentsBox.clear();
+    await deletedTransactionsBox.clear();
+    await moneyDestinationsBox.clear();
+    await manualFixedExpensesBox.clear();
+    await bankAccountsBox.clear();
+    await settingsBox.clear();
+
+    await flushAllBoxes();
+
+    _loadSettings();
+    _forceImmediateRefresh();
+  }
+
+  void restoreDeletedTransaction(DeletedTransaction deleted) async {
+    try {
+      final catIndex = categories.indexWhere(
+        (cat) => cat.name == deleted.category,
+      );
+      if (catIndex == -1) {
+        return;
+      }
+
+      final trans = Transaction(
+        amount: deleted.amount,
+        date: deleted.date,
+        description: deleted.description,
+        categoryIndex: catIndex,
+        isIncome: deleted.isIncome,
+        paidWithCash: deleted.paidWithCash,
+        paidWithBank: deleted.paidWithBank,
+        paidWithBanks: deleted.paidWithBanks,
+      );
+
+      final key = await transactionBox.add(trans);
+      trans.key = key;
+      await transactionBox.put(key, trans);
+      await flushTransactions();
+
+      if (!deleted.isIncome) {
+        if (deleted.paidWithCash > 0) {
+          cashBalance -= deleted.paidWithCash;
+          settingsBox.put('cashBalance', cashBalance);
+        }
+
+        for (var entry in deleted.paidWithBanks.entries) {
+          final bankName = entry.key;
+          final amount = entry.value;
+          final bank = bankAccounts.firstWhereOrNull((b) => b.name == bankName);
+          if (bank != null) {
+            bank.balance -= amount;
+            await bankAccountsBox.put(bank.key, bank);
+          }
+        }
+
+        if (deleted.paidWithBanks.isEmpty && deleted.paidWithBank > 0) {
+          cashBalance -= deleted.paidWithBank;
+          settingsBox.put('cashBalance', cashBalance);
+        }
+      } else {
+        cashBalance += deleted.amount;
+        settingsBox.put('cashBalance', cashBalance);
+      }
+
+      final deletedEntry = deletedTransactionsBox.values.toList().firstWhere(
+        (d) =>
+            d.deletedAt == deleted.deletedAt &&
+            d.amount == deleted.amount &&
+            d.description == deleted.description,
+        orElse: () => DeletedTransaction(
+          amount: 0,
+          date: DateTime.now(),
+          description: '',
+          category: '',
+          isIncome: false,
+          deletedAt: DateTime.now(),
+          paidWithCash: 0,
+          paidWithBank: 0,
+          paidWithBanks: {},
+        ),
+      );
+
+      if (deletedEntry.amount > 0) {
+        final deletedKey = deletedTransactionsBox.keyAt(
+          deletedTransactionsBox.values.toList().indexOf(deletedEntry),
+        );
+        await deletedTransactionsBox.delete(deletedKey);
+        await _flushDeletedTransactions();
+      }
+
+      loadDeletedTransactions();
+      loadBankAccounts();
+      _forceImmediateRefresh();
+    } catch (e) {
+      print('❌ Error restaurando transacción: $e');
     }
   }
 
@@ -567,6 +1081,91 @@ class FinanceProvider extends ChangeNotifier {
     );
   }
 
+  void updateTotals() {
+    _forceImmediateRefresh();
+    loadFixedPayments();
+    loadMoneyDestinations();
+    loadManualFixedExpenses();
+    loadBankAccounts();
+    loadDeletedTransactions();
+  }
+
+  DateTime getStartOfPeriod() {
+    final now = DateTime.now();
+    switch (payFrequency) {
+      case 'semanal':
+        // Lunes de la semana actual
+        final monday = now.subtract(Duration(days: now.weekday - 1));
+        return DateTime(monday.year, monday.month, monday.day);
+      case 'catorcena':
+        return now.day <= 15
+            ? DateTime(now.year, now.month, 1)
+            : DateTime(now.year, now.month, 15);
+      case 'quincenal':
+        return now.day <= 15
+            ? DateTime(now.year, now.month, 1)
+            : DateTime(now.year, now.month, 16);
+      case 'mensual':
+        return DateTime(now.year, now.month, 1);
+      default:
+        return DateTime(now.year, now.month, 1);
+    }
+  }
+
+  // Método para obtener transacciones del período actual
+  List<Transaction> getTransactionsForCurrentPeriod() {
+    final startOfPeriod = getStartOfPeriod();
+    return transactionBox.values
+        .where(
+          (t) =>
+              t.date.isAfter(startOfPeriod) ||
+              t.date.isAtSameMomentAs(startOfPeriod),
+        )
+        .toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+  }
+
+  // Método para obtener gastos variables del período actual
+  double getVariableExpensesForCurrentPeriod() {
+    final startOfPeriod = getStartOfPeriod();
+    return transactionBox.values
+        .where(
+          (t) =>
+              !t.isIncome &&
+              (t.date.isAfter(startOfPeriod) ||
+                  t.date.isAtSameMomentAs(startOfPeriod)),
+        )
+        .fold(0.0, (sum, t) => sum + t.amount);
+  }
+
+  // Método para obtener ingresos del período actual
+  double getIncomeForCurrentPeriod() {
+    final startOfPeriod = getStartOfPeriod();
+    return transactionBox.values
+        .where(
+          (t) =>
+              t.isIncome &&
+              (t.date.isAfter(startOfPeriod) ||
+                  t.date.isAtSameMomentAs(startOfPeriod)),
+        )
+        .fold(0.0, (sum, t) => sum + t.amount);
+  }
+
+  // Método para forzar recarga de todas las pantallas
+  void forceFullRefresh() {
+    // Recargar todas las listas
+    _loadSettings();
+    _loadCategories();
+    loadFixedPayments();
+    loadMoneyDestinations();
+    loadManualFixedExpenses();
+    loadBankAccounts();
+    loadDeletedTransactions();
+
+    // Forzar refresh completo
+    _forceImmediateRefresh();
+  }
+
   List<Map<String, dynamic>> getDailyExpensesLast7Days() {
     List<Map<String, dynamic>> data = [];
     for (int i = 6; i >= 0; i--) {
@@ -585,4 +1184,11 @@ class FinanceProvider extends ChangeNotifier {
 
   bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
+
+  // Dispose para limpiar el stream
+  @override
+  void dispose() {
+    _refreshController.close();
+    super.dispose();
+  }
 }

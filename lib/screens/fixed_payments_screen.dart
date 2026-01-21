@@ -1,3 +1,4 @@
+// fixed_payments_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/finance_provider.dart';
@@ -11,87 +12,126 @@ class FixedPaymentsScreen extends StatelessWidget {
     return Consumer<FinanceProvider>(
       builder: (context, provider, child) {
         return Scaffold(
-          appBar: AppBar(title: const Text('Pagos Fijos y Tarjetas'), backgroundColor: Colors.deepPurple[100]),
+          appBar: AppBar(
+            title: const Text('Pagos Fijos y Tarjetas'),
+            backgroundColor: Colors.deepPurple[100],
+          ),
           body: provider.fixedPayments.isEmpty
-              ? const Center(child: Text('Sin pagos fijos.\nToca + para agregar', textAlign: TextAlign.center, style: TextStyle(fontSize: 18, color: Colors.grey)))
+              ? const Center(
+                  child: Text(
+                    'Sin pagos fijos.\nToca + para agregar',
+                    textAlign: TextAlign.center,
+                  ),
+                )
               : ListView.builder(
-                  padding: const EdgeInsets.all(12),
                   itemCount: provider.fixedPayments.length,
                   itemBuilder: (context, i) {
                     final p = provider.fixedPayments[i];
-                    final overdue = _isOverdue(p);
-                    return Card(
-                      color: overdue ? Colors.red.withOpacity(0.1) : null,
-                      child: ListTile(
-                        leading: Text(p.icon, style: const TextStyle(fontSize: 40)),
-                        title: Text(p.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text('Deuda: \$${p.totalAmount.toStringAsFixed(2)}'),
-                          Text('Mínimo: \$${p.minimumPayment.toStringAsFixed(2)}'),
-                          Text('Corte: ${p.cutDay} | Pago: ${p.dueDay}'),
-                          if (overdue) const Text('¡VENCIDO!', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                        ]),
-                        trailing: IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => _confirmDelete(context, provider, p.key)),
-                        onTap: () => _showEditDialog(context, provider, p),
+                    return ListTile(
+                      leading: CircleAvatar(child: Text(p.icon)),
+                      title: Text(p.name),
+                      subtitle: Text(
+                        'Corte: día ${p.cutDay} | Vencimiento: día ${p.dueDay} | Total: \$${p.totalAmount.toStringAsFixed(2)} | Mínimo: \$${p.minimumPayment.toStringAsFixed(2)}',
+                      ),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.edit),
+                        onPressed: () => _showEditDialog(context, provider, p),
                       ),
                     );
                   },
                 ),
-          floatingActionButton: FloatingActionButton(backgroundColor: Colors.deepPurple, child: const Icon(Icons.add), onPressed: () => _showEditDialog(context, provider)),
+          floatingActionButton: FloatingActionButton(
+            child: const Icon(Icons.add),
+            onPressed: () => _showEditDialog(context, provider),
+          ),
         );
       },
     );
-  }
-
-  bool _isOverdue(FixedPayment p) {
-    final now = DateTime.now();
-    final due = DateTime(now.year, now.month, p.dueDay);
-    return due.isBefore(now) && DateTime(now.year, now.month + 1, p.dueDay).isAfter(now);
-  }
-
-  void _confirmDelete(BuildContext context, FinanceProvider provider, dynamic key) {
-    showDialog(context: context, builder: (ctx) => AlertDialog(
-      title: const Text('¿Eliminar?'),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('No')),
-        ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.red), onPressed: () { provider.deleteFixedPayment(key); Navigator.pop(ctx); }, child: const Text('Sí')),
-      ],
-    ));
   }
 
   void _showEditDialog(BuildContext context, FinanceProvider provider, [FixedPayment? existing]) {
     final nameCtrl = TextEditingController(text: existing?.name ?? '');
     final totalCtrl = TextEditingController(text: existing?.totalAmount.toStringAsFixed(2) ?? '');
     final minCtrl = TextEditingController(text: existing?.minimumPayment.toStringAsFixed(2) ?? '');
-    int cut = existing?.cutDay ?? 15;
+    int cut = existing?.cutDay ?? 1;
     int due = existing?.dueDay ?? 10;
     String icon = existing?.icon ?? '💳';
-    final icons = ['💳', '🏠', '💡', '📺', '📱', '🌐', '🚗', '🏥', '🛒', '🎓'];
 
-    showDialog(context: context, builder: (ctx) => StatefulBuilder(builder: (context, setStateDialog) => AlertDialog(
-      title: Text(existing == null ? 'Nuevo pago' : 'Editar'),
-      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Nombre')),
-        TextField(controller: totalCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Monto total')),
-        TextField(controller: minCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Pago mínimo')),
-        Row(children: [
-          Expanded(child: DropdownButton<int>(value: cut, hint: const Text('Corte'), items: List.generate(31, (i) => DropdownMenuItem(value: i+1, child: Text('Día ${i+1}'))), onChanged: (v) => setStateDialog(() => cut = v!))),
-          const SizedBox(width: 10),
-          Expanded(child: DropdownButton<int>(value: due, hint: const Text('Pago'), items: List.generate(31, (i) => DropdownMenuItem(value: i+1, child: Text('Día ${i+1}'))), onChanged: (v) => setStateDialog(() => due = v!))),
-        ]),
-        const Text('Icono'), Wrap(children: icons.map((ic) => GestureDetector(onTap: () => setStateDialog(() => icon = ic), child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(border: Border.all(color: icon == ic ? Colors.deepPurple : Colors.grey)), child: Text(ic, style: const TextStyle(fontSize: 32))))).toList()),
-      ])),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
-        ElevatedButton(onPressed: () {
-          final total = double.tryParse(totalCtrl.text.replaceAll(',', '.')) ?? 0;
-          final min = double.tryParse(minCtrl.text.replaceAll(',', '.')) ?? 0;
-          if (nameCtrl.text.isEmpty || total <= 0 || min <= 0) return;
-          final payment = FixedPayment(name: nameCtrl.text, totalAmount: total, minimumPayment: min, cutDay: cut, dueDay: due, icon: icon);
-          existing == null ? provider.addFixedPayment(payment) : provider.updateFixedPayment(existing.key, payment);
-          Navigator.pop(ctx);
-        }, child: const Text('Guardar')),
-      ],
-    )));
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(existing == null ? 'Agregar Pago Fijo' : 'Editar Pago Fijo'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(labelText: 'Nombre (ej. Tarjeta BBVA)'),
+              ),
+              TextField(
+                controller: totalCtrl,
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Monto total', prefixText: '\$ '),
+              ),
+              TextField(
+                controller: minCtrl,
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Pago mínimo', prefixText: '\$ '),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButton<int>(
+                      value: cut,
+                      items: List.generate(31, (i) => DropdownMenuItem(value: i + 1, child: Text('${i + 1}'))),
+                      onChanged: (v) => cut = v!,
+                      hint: const Text('Día de corte'),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: DropdownButton<int>(
+                      value: due,
+                      items: List.generate(31, (i) => DropdownMenuItem(value: i + 1, child: Text('${i + 1}'))),
+                      onChanged: (v) => due = v!,
+                      hint: const Text('Día de vencimiento'),
+                    ),
+                  ),
+                ],
+              ),
+              DropdownButton<String>(
+                value: icon,
+                items: const [
+                  DropdownMenuItem(value: '💳', child: Text('💳 Tarjeta')),
+                  DropdownMenuItem(value: '🏦', child: Text('🏦 Préstamo')),
+                  DropdownMenuItem(value: '📱', child: Text('📱 Servicio')),
+                ],
+                onChanged: (v) => icon = v!,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () {
+              final total = double.tryParse(totalCtrl.text.replaceAll(',', '.')) ?? 0;
+              final min = double.tryParse(minCtrl.text.replaceAll(',', '.')) ?? 0;
+              if (nameCtrl.text.isEmpty || total <= 0 || min <= 0) return;
+              final payment = FixedPayment(name: nameCtrl.text, totalAmount: total, minimumPayment: min, cutDay: cut, dueDay: due, icon: icon);
+              if (existing == null) {
+                provider.addFixedPayment(payment);
+              } else {
+                provider.updateFixedPayment(existing.key, payment);
+              }
+              Navigator.pop(ctx);
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
   }
 }

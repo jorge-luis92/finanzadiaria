@@ -18,36 +18,39 @@ class DeletedTransactionAdapter extends TypeAdapter<DeletedTransaction> {
     };
     return DeletedTransaction(
       amount: fields[0] as double,
-      originalDate: fields[1] as DateTime,
-      description: fields[2] as String,
-      categoryIndex: fields[3] as int,
+      description: fields[1] as String,
+      category: fields[2] as String,
+      date: fields[3] as DateTime,
       isIncome: fields[4] as bool,
-      deletedAt: fields[5] as DateTime,
-      paidWithCash: fields[6] as double,
-      paidWithBank: fields[7] as double,
+      paidWithCash: fields[5] as double,
+      paidWithBank: fields[6] as double,
+      paidWithBanks: (fields[7] as Map).cast<String, double>(),
+      deletedAt: fields[8] as DateTime,
     );
   }
 
   @override
   void write(BinaryWriter writer, DeletedTransaction obj) {
     writer
-      ..writeByte(8)
+      ..writeByte(9)
       ..writeByte(0)
       ..write(obj.amount)
       ..writeByte(1)
-      ..write(obj.originalDate)
-      ..writeByte(2)
       ..write(obj.description)
+      ..writeByte(2)
+      ..write(obj.category)
       ..writeByte(3)
-      ..write(obj.categoryIndex)
+      ..write(obj.date)
       ..writeByte(4)
       ..write(obj.isIncome)
       ..writeByte(5)
-      ..write(obj.deletedAt)
-      ..writeByte(6)
       ..write(obj.paidWithCash)
+      ..writeByte(6)
+      ..write(obj.paidWithBank)
       ..writeByte(7)
-      ..write(obj.paidWithBank);
+      ..write(obj.paidWithBanks)
+      ..writeByte(8)
+      ..write(obj.deletedAt);
   }
 
   @override

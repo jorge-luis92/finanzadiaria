@@ -10,21 +10,21 @@ android {
     ndkVersion = "27.0.12077973"
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_21  // ← CAMBIA de 17 a 21
-        targetCompatibility = JavaVersion.VERSION_21  // ← CAMBIA de 17 a 21
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
         isCoreLibraryDesugaringEnabled = true
     }
 
     kotlin {
-        jvmToolchain(21)  // ← CAMBIA de 17 a 21
+        jvmToolchain(21)
     }
 
     defaultConfig {
         applicationId = "com.desarrollochido.finanzadiaria"
         minSdk = flutter.minSdkVersion
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 5
+        versionName = "1.2.1"
         multiDexEnabled = true
     }
 

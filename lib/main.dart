@@ -1,6 +1,8 @@
+// main.dart - VERSIÓN CORREGIDA
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+// REMUEVE esta línea: import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -22,12 +24,11 @@ import 'screens/home_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // === BACKUP AUTOMÁTICO EN GOOGLE DRIVE (Android) E iCLOUD (iOS) ===
   Directory dir;
   if (Platform.isAndroid) {
-    dir = await getApplicationDocumentsDirectory(); // Android: respaldado por Google Drive
+    dir = await getApplicationDocumentsDirectory(); 
   } else if (Platform.isIOS) {
-    dir = await getLibraryDirectory(); // iOS: respaldado por iCloud
+    dir = await getLibraryDirectory();
   } else {
     dir = await getApplicationDocumentsDirectory();
   }
@@ -61,13 +62,60 @@ void main() async {
   runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    
+    if (state == AppLifecycleState.paused || 
+        state == AppLifecycleState.inactive || 
+        state == AppLifecycleState.detached) {
+      // Cuando la app va a segundo plano o está siendo cerrada
+      _saveAllHiveBoxes();
+    }
+  }
+
+  Future<void> _saveAllHiveBoxes() async {
+    try {
+      // Guardar todas las boxes de Hive
+      await Hive.box('settings').flush();
+      await Hive.box<Transaction>('transactions').flush();
+      await Hive.box<Category>('categories').flush();
+      await Hive.box<FixedPayment>('fixed_payments').flush();
+      await Hive.box<DeletedTransaction>('deleted_transactions').flush();
+      await Hive.box<MoneyDestination>('money_destinations').flush();
+      await Hive.box<ManualFixedExpense>('manual_fixed_expenses').flush();
+      await Hive.box<BankAccount>('bank_accounts').flush();
+      
+      print('✅ Todos los datos de Hive guardados correctamente');
+    } catch (e) {
+      print('❌ Error al guardar datos de Hive: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => FinanceProvider()..schedulePaymentNotifications(), // ← Llamada correcta
+      create: (_) => FinanceProvider()..schedulePaymentNotifications(),
       child: MaterialApp(
         title: 'FinanzaDiaria',
         debugShowCheckedModeBanner: false,
@@ -75,6 +123,7 @@ class MyApp extends StatelessWidget {
           primarySwatch: Colors.green,
           useMaterial3: true,
         ),
+        // SOLUCIÓN SIMPLIFICADA - Sin localizaciones complejas
         home: const RootScreen(),
       ),
     );

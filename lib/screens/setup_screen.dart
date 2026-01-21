@@ -82,7 +82,6 @@ class _SetupScreenState extends State<SetupScreen> {
               ),
               const SizedBox(height: 40),
 
-              // Frecuencia de pago
               DropdownButtonFormField<String>(
                 value: _selectedFreq,
                 decoration: const InputDecoration(
@@ -96,7 +95,6 @@ class _SetupScreenState extends State<SetupScreen> {
               ),
               const SizedBox(height: 20),
 
-              // Días trabajados (se actualiza automáticamente)
               Row(
                 children: [
                   Expanded(
@@ -151,13 +149,12 @@ class _SetupScreenState extends State<SetupScreen> {
               ),
               const SizedBox(height: 20),
 
-              // Ingreso por día
               TextField(
                 controller: _dailyIncomeController,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 decoration: const InputDecoration(
                   labelText: 'Ingreso por día trabajado',
-                  hintText: 'Ejemplo: 563.16',
+                  hintText: 'Ejemplo: 500',
                   border: OutlineInputBorder(),
                   prefixText: '\$ ',
                 ),

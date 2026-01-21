@@ -25,13 +25,16 @@ class TransactionAdapter extends TypeAdapter<Transaction> {
       paidWithCash: fields[5] as double,
       paidWithBank: fields[6] as double,
       paidWithBanks: (fields[7] as Map).cast<String, double>(),
+      key: fields[8] as dynamic,
     );
   }
 
   @override
   void write(BinaryWriter writer, Transaction obj) {
     writer
+      ..writeByte(9)
       ..writeByte(8)
+      ..write(obj.key)
       ..writeByte(0)
       ..write(obj.amount)
       ..writeByte(1)

@@ -3,23 +3,33 @@ import 'package:hive/hive.dart';
 part 'category.g.dart';
 
 @HiveType(typeId: 1)
-class Category extends HiveObject {
+class Category {
+  dynamic key;
+
   @HiveField(0)
-  String name;
-
+  final String name;
+  
   @HiveField(1)
-  String icon;
-
+  final String color;  // Cambiado de int a String
+  
   @HiveField(2)
-  String color;
-
+  final String icon;
+  
   @HiveField(3)
-  bool isIncome;
+  final bool isIncome;
 
   Category({
     required this.name,
+    required this.color,  // Ahora acepta String
     required this.icon,
-    required this.color,
     required this.isIncome,
   });
+
+  Future<void> save() async {
+    if (key != null) {
+      final box = await Hive.openBox<Category>('categories');
+      await box.put(key, this);
+      await box.flush();
+    }
+  }
 }

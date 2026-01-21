@@ -3,39 +3,61 @@ import 'package:hive/hive.dart';
 part 'transaction.g.dart';
 
 @HiveType(typeId: 0)
-class Transaction extends HiveObject {
+class Transaction {
+  @HiveField(8) // Agregar este campo como HiveField
+  dynamic key;
+
   @HiveField(0)
-  double amount;
-
+  final double amount;
+  
   @HiveField(1)
-  DateTime date;
-
+  final DateTime date;
+  
   @HiveField(2)
-  String description;
-
+  final String description;
+  
   @HiveField(3)
-  int categoryIndex;
-
+  final int categoryIndex;
+  
   @HiveField(4)
-  bool isIncome;
-
+  final bool isIncome;
+  
   @HiveField(5)
-  double paidWithCash = 0.0;
-
+  final double paidWithCash;
+  
   @HiveField(6)
-  double paidWithBank = 0.0;
-
+  final double paidWithBank;
+  
   @HiveField(7)
-  Map<String, double> paidWithBanks = {};
-
+  final Map<String, double> paidWithBanks;
+  
   Transaction({
     required this.amount,
     required this.date,
     required this.description,
     required this.categoryIndex,
     required this.isIncome,
-    this.paidWithCash = 0.0,
-    this.paidWithBank = 0.0,
-    this.paidWithBanks = const {},
+    required this.paidWithCash,
+    required this.paidWithBank,
+    required this.paidWithBanks,
+    this.key, // Hacer el key opcional en el constructor
   });
+
+  // Método para guardar la transacción
+  Future<void> save() async {
+    if (key != null) {
+      final box = await Hive.openBox<Transaction>('transactions');
+      await box.put(key, this);
+      await box.flush();
+    }
+  }
+
+  // Método para eliminar la transacción
+  Future<void> delete() async {
+    if (key != null) {
+      final box = await Hive.openBox<Transaction>('transactions');
+      await box.delete(key);
+      await box.flush();
+    }
+  }
 }

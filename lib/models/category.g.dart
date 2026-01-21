@@ -18,8 +18,8 @@ class CategoryAdapter extends TypeAdapter<Category> {
     };
     return Category(
       name: fields[0] as String,
-      icon: fields[1] as String,
-      color: fields[2] as String,
+      color: fields[1] as String,
+      icon: fields[2] as String,
       isIncome: fields[3] as bool,
     );
   }
@@ -31,9 +31,9 @@ class CategoryAdapter extends TypeAdapter<Category> {
       ..writeByte(0)
       ..write(obj.name)
       ..writeByte(1)
-      ..write(obj.icon)
-      ..writeByte(2)
       ..write(obj.color)
+      ..writeByte(2)
+      ..write(obj.icon)
       ..writeByte(3)
       ..write(obj.isIncome);
   }
